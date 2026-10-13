@@ -1,11 +1,11 @@
 const express = require('express');
-const app = express();
 const http = require('http');
 const WebSocket = require('ws');
 const PORT = process.env.PORT || 3000;
 
 require('dotenv').config();
 
+const app = express();
 app.use(express.json());
 
 app.get('/', (req, res) => res.send('VoicePay backend is alive'));
