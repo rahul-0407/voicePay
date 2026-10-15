@@ -7,7 +7,7 @@ const USDC_ABI = [
 
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_AMOY_RPC);
 const operatorWallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const GAS_STIPEND = ethers.parseEther("0.01");
+const GAS_STIPEND = ethers.parseEther("0.05");
 
 async function sponsorGas(walletAddress) {
   const tx = await operatorWallet.sendTransaction({
