@@ -2,3 +2,8 @@
 .env.*
 !.env.example 
 
+test.wav
+
+testIntent.js
+testSpeech.js
+

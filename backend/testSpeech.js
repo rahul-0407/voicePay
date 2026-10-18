@@ -1,4 +1,4 @@
-equire('dotenv').config();
+require('dotenv').config();
 const fs = require('fs');
 const { transcribeWav } = require('./services/speech');
 const { parseIntent } = require('./services/intentParser');

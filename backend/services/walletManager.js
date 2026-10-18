@@ -9,8 +9,15 @@ if (!MASTER_MNEMONIC) {
   );
 }
 
+function normalizePhone(raw) {
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length === 10) return '+91' + digits;
+  if (digits.length === 11 && digits.startsWith('0')) return '+91' + digits.slice(1);
+  return '+' + digits;
+}
+
 function hashPhone(phoneNumber) {
-  return ethers.keccak256(ethers.toUtf8Bytes(phoneNumber));
+  return ethers.keccak256(ethers.toUtf8Bytes(normalizePhone(phoneNumber)));
 }
 
 function deriveWallet(userIndex, provider) {
