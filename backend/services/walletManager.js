@@ -77,4 +77,5 @@ module.exports = {
   getWalletAddress,
   hashPhone,
   deriveWallet,
+  normalizePhone
 };
