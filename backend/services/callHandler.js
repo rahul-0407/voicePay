@@ -5,13 +5,23 @@ const { getWalletAddress, normalizePhone } = require('./walletManager');
 const { executeRealPayment } = require('./paymentExecutor');
 const { getUsdcBalance } = require('./balance');
 
-
-
 const MAX_PER_PAYMENT = Number(process.env.MAX_PER_PAYMENT || 100);
 
-async function handlePay(callerPhone, intent) {
+
+const REQUIRE_CONFIRM = process.env.REQUIRE_CONFIRM !== 'false';
+const CONFIRM_TTL_MS = 60 * 1000;
+const pending = new Map();
+
+const YES = /^(yes|yeah|yep|yup|confirm|confirmed|correct|ok|okay|sure|go ahead|do it|haan|han|ha)\b/;
+const NO = /^(no|nope|cancel|stop|don't|do not|nahi|nahin|nai)\b/;
+const cleanSpeech = (t) => t.toLowerCase().replace(/[^a-z' ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+async function handlePay(callerPhone, intent, confirmed = false) {
   const name = intent.recipient_name;
-  const amount = intent.amount;
+  const amount = Math.round(Number(intent.amount) * 100) / 100;
+  if (!name || !(amount >= 0.01)) {
+    return 'Please say the amount and the name, for example: send 5 to Ramesh.';
+  }
 
   if (amount > MAX_PER_PAYMENT) {
     return `Sorry, the limit is ${MAX_PER_PAYMENT} USDC per payment.`;
@@ -34,6 +44,11 @@ async function handlePay(callerPhone, intent) {
   const balance = await getUsdcBalance(myAddress);
   if (balance < amount) {
     return `Insufficient balance. You have ${balance} USDC.`;
+  }
+
+  if (REQUIRE_CONFIRM && !confirmed) {
+    pending.set(normalizePhone(callerPhone), { intent: { ...intent, amount }, expires: Date.now() + CONFIRM_TTL_MS });
+    return `Send ${amount} USDC to ${name}. Say yes to confirm, or no to cancel.`;
   }
 
   try {
@@ -64,6 +79,18 @@ function handleAddContact(callerPhone, intent) {
 async function handleText(callerPhone, text) {
   console.log(`[${callerPhone}] heard:`, JSON.stringify(text));
 
+
+  const key = normalizePhone(callerPhone);
+  const waiting = pending.get(key);
+  if (waiting) {
+    pending.delete(key);
+    if (Date.now() <= waiting.expires) {
+      const said = cleanSpeech(text);
+      if (YES.test(said)) return handlePay(callerPhone, waiting.intent, true);
+      if (NO.test(said)) return 'Okay, cancelled.';
+    }
+  }
+
   const intent = await parseIntent(text);
   console.log('intent:', intent);
 
@@ -75,7 +102,7 @@ async function handleText(callerPhone, text) {
     case 'add_contact':
       return handleAddContact(callerPhone, intent);
     default:
-      return "Sorry, I didn't understand. You can say: send 500 to Ramesh.";
+      return "Sorry, I didn't understand. You can say: send 5 to Ramesh.";
   }
 }
 

@@ -1,6 +1,11 @@
-const Database = require("better-sqlite3");
+const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
 
-const db = new Database("voicepay.db");
+const DB_FILE = process.env.DB_PATH || path.join(__dirname, '..', 'voicepay.db');
+fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+
+const db = new Database(DB_FILE);
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (

@@ -1,9 +1,10 @@
+node_modules/
 .env
-.env.*
-!.env.example 
-
-test.wav
-
-testIntent.js
-testSpeech.js
-
+*.db
+*.db-journal
+*.wav
+.DS_Store
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
