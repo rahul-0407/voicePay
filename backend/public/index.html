@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoicePay</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;background:#0f1115;color:#e8e8e8}
+  h1{margin-bottom:4px} .sub{color:#888;margin-top:0}
+  input,button{font-size:16px;padding:12px;border-radius:8px;border:1px solid #333;background:#1a1d24;color:#fff;width:100%;box-sizing:border-box;margin:6px 0}
+  button{background:#7c3aed;border:0;cursor:pointer} button.stop{background:#b91c1c}
+  #log{background:#1a1d24;border-radius:8px;padding:12px;min-height:160px;margin-top:12px;white-space:pre-wrap;font-size:14px}
+  .me{color:#9ca3af}.bot{color:#a7f3d0}.sys{color:#facc15}
+  #level{height:6px;background:#22c55e;width:0;border-radius:3px;transition:width .1s}
+</style>
+</head>
+<body>
+<h1>VoicePay</h1>
+<p class="sub">Speak a payment. Real USDC on Polygon Amoy.</p>
+<input id="phone" placeholder="Your registered number, e.g. +919876543210">
+<button id="btn">Start call</button>
+<div id="level"></div>
+<div id="log"></div>
+<p class="sub">Try: "how much money do I have", "send 2 to Ramesh". Speak, then pause for a second.</p>
+<script>
+const logEl = document.getElementById('log');
+const btn = document.getElementById('btn');
+const phoneEl = document.getElementById('phone');
+phoneEl.value = localStorage.getItem('vp_phone') || '';
+const say = (cls, t) => { logEl.insertAdjacentHTML('beforeend', `<div class="${cls}">${t}</div>`); logEl.scrollTop = logEl.scrollHeight; };
+
+let ws, ctx, stream, proc, speaking = false, active = false, muteTimer;
+
+function downsample(f32, inRate, outRate) {
+  const ratio = inRate / outRate, n = Math.floor(f32.length / ratio), out = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let sum = 0; for (let j = a; j < b; j++) sum += f32[j];
+    const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)));
+    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff;
+  }
+  return out;
+}
+const b64 = (i16) => { let s = '', u = new Uint8Array(i16.buffer); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+
+async function start() {
+  const phone = phoneEl.value.trim();
+  if (!phone) return alert('Enter your phone number');
+  localStorage.setItem('vp_phone', phone);
+
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  ctx = new AudioContext();
+  const src = ctx.createMediaStreamSource(stream);
+  proc = ctx.createScriptProcessor(4096, 1, 1);
+  let pending = new Int16Array(0);
+
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/voicebot');
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ event: 'connected' }));
+    ws.send(JSON.stringify({ event: 'start', stream_sid: 'browser', start: { source: 'browser', from: phone, call_sid: 'browser' } }));
+    say('sys', 'Connected. Setting up your wallet...');
+  };
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.event === 'ready') say('sys', 'Wallet: ' + m.wallet + '\nListening — go ahead and speak.');
+    if (m.event === 'reply') {
+      say('bot', 'VoicePay: ' + m.text);
+      // Mute the mic while the reply is spoken, but NEVER get stuck muted:
+      // some browsers (Brave on Linux) have no voices and never fire onend.
+      const unmute = () => { speaking = false; clearTimeout(muteTimer); };
+      clearTimeout(muteTimer);
+      if (!('speechSynthesis' in window) || speechSynthesis.getVoices().length === 0) {
+        speaking = false; // nothing will be spoken, keep listening
+      } else {
+        speaking = true;
+        muteTimer = setTimeout(unmute, Math.max(2500, m.text.length * 90)); // safety net
+        const u = new SpeechSynthesisUtterance(m.text);
+        u.lang = 'en-IN';
+        u.onend = unmute;
+        u.onerror = unmute;
+        speechSynthesis.cancel();
+        speechSynthesis.speak(u);
+      }
+    }
+  };
+  ws.onclose = () => stop(true);
+
+  proc.onaudioprocess = (e) => {
+    const f = e.inputBuffer.getChannelData(0);
+    let sum = 0; for (let i = 0; i < f.length; i++) sum += f[i] * f[i];
+    document.getElementById('level').style.width = Math.min(100, Math.sqrt(sum / f.length) * 400) + '%';
+    if (speaking || !ws || ws.readyState !== 1) return; // don't send while the bot talks
+    const d = downsample(f, ctx.sampleRate, 8000);
+    const merged = new Int16Array(pending.length + d.length); merged.set(pending); merged.set(d, pending.length);
+    const CH = 1600; // 1600 samples = 3200 bytes = 200 ms, a multiple of 320 bytes
+    let o = 0;
+    while (merged.length - o >= CH) {
+      ws.send(JSON.stringify({ event: 'media', stream_sid: 'browser', media: { payload: b64(merged.slice(o, o + CH)) } }));
+      o += CH;
+    }
+    pending = merged.slice(o);
+  };
+  src.connect(proc); proc.connect(ctx.destination);
+  active = true; btn.textContent = 'End call'; btn.className = 'stop';
+}
+
+function stop(fromClose) {
+  if (!active) return; active = false;
+  try { proc && proc.disconnect(); ctx && ctx.close(); stream && stream.getTracks().forEach(t => t.stop()); } catch {}
+  if (!fromClose && ws) { try { ws.send(JSON.stringify({ event: 'stop' })); ws.close(); } catch {} }
+  speechSynthesis.cancel();
+  btn.textContent = 'Start call'; btn.className = ''; say('sys', 'Call ended.');
+}
+btn.onclick = () => (active ? stop() : start().catch((e) => say('sys', 'Error: ' + e.message)));
+</script>
+</body>
+</html>
