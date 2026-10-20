@@ -4,7 +4,7 @@
 
 A caller dials a normal phone number, says *"send 5 to Ramesh"*, confirms with *"yes"*, and a real ERC-20 USDC transfer settles on Polygon. The wallet behind every phone number is a standard Ethereum wallet, so the same person can later import the key into MetaMask and see the same balance.
 
-Built for ETHGlobal Mumbai 2026.
+A personal project.
 
 > **Network:** Polygon Amoy **testnet** with Circle's test USDC. Every transaction is real and verifiable on-chain, but no real money is involved.
 
